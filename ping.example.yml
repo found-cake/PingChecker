@@ -1,0 +1,20 @@
+# Save as ping.yml beside the executable.
+# Omit theme to use the system appearance as the initial default.
+theme: dark
+interval_seconds: 5
+timeout_seconds: 3
+beep_enabled: true
+beep_duration_ms: 300
+beep_volume_percent: 20
+failure_threshold: 3
+targets:
+  - name: Local ICMP
+    protocol: icmp
+    host: 127.0.0.1
+  - name: Local TCP
+    protocol: tcp
+    host: 127.0.0.1
+    port: 443
+  - name: Web health
+    protocol: http
+    url: https://example.com/

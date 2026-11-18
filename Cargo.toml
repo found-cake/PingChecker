@@ -1,0 +1,35 @@
+[package]
+name = "pingchecker"
+version = "0.1.0"
+edition = "2024"
+description = "Native ICMP, TCP and HTTP availability monitor"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+eframe = { version = "0.33.3", default-features = false, features = ["default_fonts", "glow", "x11", "wayland", "accesskit"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+rodio = { version = "0.21", default-features = false, features = ["playback"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml_ng = "0.10"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "process", "time", "sync", "macros", "io-util"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"
+let_underscore_must_use = "deny"
+
+[profile.release]
+lto = "thin"
+strip = true
