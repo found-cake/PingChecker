@@ -52,6 +52,8 @@ Beep duration is **0.1-10 seconds**, and app volume is **0-100%**.
 Defaults are 0.3 seconds and 20%; output also depends on system volume.
 Zero percent mutes the sound without changing outage tracking.
 The alert sounds once per outage at the configured consecutive failure count.
+After an automatic alert, that target's row stays red with an **ALERT** status
+through subsequent failures. A successful check clears the highlight.
 Recovery resets the failure count and rearms the alert.
 Saving changes or managing targets preserves surviving targets' outage state.
 Restarting or explicitly selecting **Reload YAML** resets monitoring history.

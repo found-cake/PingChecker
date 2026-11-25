@@ -170,6 +170,9 @@ impl eframe::App for App {
 }
 
 #[cfg(test)]
+#[path = "tests/alarms.rs"]
+mod alarm_tests;
+#[cfg(test)]
 #[path = "tests/dialog_layout.rs"]
 mod dialog_layout_tests;
 #[cfg(test)]

@@ -5,6 +5,9 @@ use crate::{
     config::{Appearance, Config},
 };
 
+pub const ALARM_ROW_DARK: Color32 = Color32::from_rgb(72, 24, 32);
+pub const ALARM_ROW_LIGHT: Color32 = Color32::from_rgb(255, 235, 238);
+
 pub fn initialize(ctx: &egui::Context, config: &mut Config) {
     let appearance = *config.theme.get_or_insert_with(|| {
         match ctx.system_theme().unwrap_or(egui::Theme::Dark) {
