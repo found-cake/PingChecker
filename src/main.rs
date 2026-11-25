@@ -6,11 +6,13 @@ pub mod config;
 
 pub const APP_NAME: &str = "PingChecker";
 
+const INITIAL_WINDOW_SIZE: [f32; 2] = [900.0, 600.0];
+
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title(APP_NAME)
-            .with_inner_size([1100.0, 720.0])
+            .with_inner_size(INITIAL_WINDOW_SIZE)
             .with_min_inner_size([700.0, 520.0]),
         ..Default::default()
     };

@@ -74,8 +74,8 @@ fn text_geometry(app: &mut App, ctx: &egui::Context, size: Vec2) -> Vec<(Pos2, V
 #[test]
 fn switching_themes_preserves_the_actual_screen_layout() {
     for initial_theme in [Theme::Dark, Theme::Light] {
-        for width in [700.0, 1100.0, 1440.0] {
-            for height in [520.0, 720.0] {
+        for width in [700.0, 900.0, 1100.0, 1440.0] {
+            for height in [520.0, 600.0, 720.0] {
                 for populated in [false, true] {
                     for screen in [Screen::Main, Screen::AddTarget, Screen::Settings] {
                         for notification in [false, true] {
