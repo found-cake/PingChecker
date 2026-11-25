@@ -1,4 +1,4 @@
-# pingchecker
+# PingChecker
 
 A native Rust desktop application for ICMP, TCP and HTTP availability monitoring.
 

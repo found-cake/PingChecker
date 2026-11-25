@@ -22,7 +22,7 @@ pub fn draw(app: &App, ctx: &egui::Context) -> Option<Action> {
     egui::TopBottomPanel::top("header")
         .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(24))
         .show(ctx, |ui| {
-            ui.heading(env!("CARGO_PKG_NAME"));
+            ui.heading(crate::APP_NAME);
             let (mut up, mut down, mut pending) = (0, 0, 0);
             if let Some(monitor) = &app.monitor {
                 for state in &monitor.states {
