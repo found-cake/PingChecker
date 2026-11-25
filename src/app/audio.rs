@@ -1,28 +1,28 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use rodio::{OutputStream, OutputStreamBuilder, Sink, Source, source::SineWave};
+use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source, source::SineWave};
 
 use crate::config::Config;
 
 /// The stream and sink stay alive for the lifetime of the application.
 #[derive(Default)]
 pub struct Beeper {
-    output: Option<(OutputStream, Sink)>,
+    output: Option<(MixerDeviceSink, Player)>,
 }
 
 impl Beeper {
     pub fn play(&mut self, config: &Config) -> Result<()> {
         if self.output.is_none() {
-            let mut stream = OutputStreamBuilder::open_default_stream()
+            let mut stream = DeviceSinkBuilder::open_default_sink()
                 .context("Failed to open the audio output device")?;
             stream.log_on_drop(false);
-            let sink = Sink::connect_new(stream.mixer());
+            let sink = Player::connect_new(stream.mixer());
             self.output = Some((stream, sink));
         }
         if let Some((stream, sink)) = &mut self.output {
             // Dropping the old sink stops it without waiting for its queue to drain.
-            *sink = Sink::connect_new(stream.mixer());
+            *sink = Player::connect_new(stream.mixer());
             sink.append(tone(config));
         }
         Ok(())
@@ -49,9 +49,11 @@ mod tests {
             };
             let source = tone(&config);
             let one_millisecond =
-                u64::from(source.sample_rate()) * u64::from(source.channels()) / 1000;
-            let expected_samples =
-                u64::from(source.sample_rate()) * u64::from(source.channels()) * duration / 1000;
+                u64::from(source.sample_rate().get()) * u64::from(source.channels().get()) / 1000;
+            let expected_samples = u64::from(source.sample_rate().get())
+                * u64::from(source.channels().get())
+                * duration
+                / 1000;
             let (count, peak) = source.fold((0_u64, 0.0_f32), |(count, peak), sample| {
                 (count + 1, peak.max(sample.abs()))
             });

@@ -41,9 +41,16 @@ pub fn draw(entry: &mut Entry, active: &Config, ui: &mut egui::Ui) -> Option<Act
                 Protocol::Http => "HTTP",
             })
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut entry.protocol, Protocol::Icmp, "ICMP");
-                ui.selectable_value(&mut entry.protocol, Protocol::Tcp, "TCP");
-                ui.selectable_value(&mut entry.protocol, Protocol::Http, "HTTP");
+                let selected = ui
+                    .selectable_value(&mut entry.protocol, Protocol::Icmp, "ICMP")
+                    .clicked()
+                    | ui.selectable_value(&mut entry.protocol, Protocol::Tcp, "TCP")
+                        .clicked()
+                    | ui.selectable_value(&mut entry.protocol, Protocol::Http, "HTTP")
+                        .clicked();
+                if selected {
+                    ui.close();
+                }
             });
         let name_label = ui.label("Name");
         ui.add(

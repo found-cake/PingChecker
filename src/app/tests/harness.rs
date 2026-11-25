@@ -45,15 +45,16 @@ impl Harness {
     }
 
     pub fn frame(&mut self, events: Vec<Event>) {
-        self.output = self.ctx.run(
+        self.output = self.ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, self.screen_size)),
                 time: Some(self.ctx.input(|input| input.time) + 1.0 / 60.0),
                 events,
                 ..Default::default()
             },
-            |ctx| self.app.ui(ctx),
+            |ui| self.app.ui(ui),
         );
+        self.output.textures_delta.clear();
     }
 
     pub fn click(&mut self, label: &str) -> Result<()> {
@@ -72,7 +73,8 @@ impl Harness {
             .map(|(id, _)| *id)
             .with_context(|| format!("button {label}"))?;
         self.frame(vec![Event::AccessKitActionRequest(ActionRequest {
-            target,
+            target_tree: egui::accesskit::TreeId::ROOT,
+            target_node: target,
             action: Action::Click,
             data: None,
         })]);
@@ -95,7 +97,8 @@ impl Harness {
         fields.sort_by(|left, right| left.1.total_cmp(&right.1));
         let target = fields.get(index).context("text field")?.0;
         self.frame(vec![Event::AccessKitActionRequest(ActionRequest {
-            target,
+            target_tree: egui::accesskit::TreeId::ROOT,
+            target_node: target,
             action: Action::Focus,
             data: None,
         })]);
@@ -129,7 +132,8 @@ impl Harness {
     pub fn set_number(&mut self, label: &str, value: f64) -> Result<()> {
         let target = self.number(label)?.0;
         self.frame(vec![Event::AccessKitActionRequest(ActionRequest {
-            target,
+            target_tree: egui::accesskit::TreeId::ROOT,
+            target_node: target,
             action: Action::SetValue,
             data: Some(ActionData::NumericValue(value)),
         })]);

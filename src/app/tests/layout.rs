@@ -16,9 +16,14 @@ fn text_geometry(app: &mut App, ctx: &egui::Context, size: Vec2) -> Vec<(Pos2, V
         ..Default::default()
     };
     // Measure the grid, size its content-grown area, then center that measured area.
-    let _initial_frame = ctx.run(input.clone(), |ctx| app.ui(ctx));
-    let _measured_area_frame = ctx.run(input.clone(), |ctx| app.ui(ctx));
-    let output = ctx.run(input, |ctx| app.ui(ctx));
+    ctx.run_ui(input.clone(), |ui| app.ui(ui))
+        .textures_delta
+        .clear();
+    ctx.run_ui(input.clone(), |ui| app.ui(ui))
+        .textures_delta
+        .clear();
+    let mut output = ctx.run_ui(input, |ui| app.ui(ui));
+    output.textures_delta.clear();
     let circles: Vec<_> = output
         .shapes
         .iter()
@@ -52,7 +57,7 @@ fn text_geometry(app: &mut App, ctx: &egui::Context, size: Vec2) -> Vec<(Pos2, V
     assert_eq!(
         panel_fills,
         vec![
-            ctx.style().visuals.panel_fill;
+            ctx.global_style().visuals.panel_fill;
             if app.dialog.is_none() && app.message.is_some() {
                 4
             } else {
@@ -128,10 +133,10 @@ fn switching_themes_preserves_the_actual_screen_layout() {
                             let size = egui::vec2(width, height);
                             ctx.set_theme(Theme::Dark);
                             let dark = text_geometry(&mut app, &ctx, size);
-                            let dark_style = ctx.style();
+                            let dark_style = ctx.global_style();
                             ctx.set_theme(Theme::Light);
                             let light = text_geometry(&mut app, &ctx, size);
-                            let light_style = ctx.style();
+                            let light_style = ctx.global_style();
 
                             assert!(!dark.is_empty(), "the screen did not render");
                             assert_eq!(

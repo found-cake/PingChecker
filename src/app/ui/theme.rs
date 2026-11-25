@@ -105,13 +105,14 @@ mod tests {
             ),
         ] {
             let ctx = egui::Context::default();
-            let _frame = ctx.run(
+            let mut frame = ctx.run_pass(
                 egui::RawInput {
                     system_theme: system,
                     ..Default::default()
                 },
                 |_| {},
             );
+            frame.textures_delta.clear();
             let mut config = Config {
                 theme: saved,
                 ..Config::default()
@@ -119,21 +120,23 @@ mod tests {
             initialize(&ctx, &mut config);
             assert_eq!(config.theme, Some(expected));
             let pinned = ctx.theme();
-            let _frame = ctx.run(
+            let mut frame = ctx.run_pass(
                 egui::RawInput {
                     system_theme: Some(egui::Theme::Light),
                     ..Default::default()
                 },
                 |_| {},
             );
+            frame.textures_delta.clear();
             assert_eq!(ctx.theme(), pinned);
-            let _frame = ctx.run(
+            let mut frame = ctx.run_pass(
                 egui::RawInput {
                     system_theme: Some(egui::Theme::Dark),
                     ..Default::default()
                 },
                 |_| {},
             );
+            frame.textures_delta.clear();
             assert_eq!(ctx.theme(), pinned);
         }
     }

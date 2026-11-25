@@ -24,11 +24,11 @@ pub fn draw(dialog: &mut Dialog, app: &App, ctx: &egui::Context) -> Option<Actio
         Dialog::AddTarget(_) => ("Add target", "add_target_dialog"),
         Dialog::Settings(_) => ("Settings", "settings_dialog"),
     };
-    let id = egui::Id::new(id);
+    let id = egui::Id::unique(id);
     let mut action = None;
     let response = egui::Modal::new(id)
         .area(egui::Modal::default_area(id).fade_in(false))
-        .frame(egui::Frame::popup(&ctx.style()).inner_margin(24))
+        .frame(egui::Frame::popup(&ctx.global_style()).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(560.0_f32.min(ctx.content_rect().width() - 96.0));
             ui.set_max_height(ctx.content_rect().height() - 96.0);

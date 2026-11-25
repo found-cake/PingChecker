@@ -31,13 +31,14 @@ fn first_render_uses_the_system_theme_then_pins_the_choice() -> Result<()> {
     h.ctx.set_theme(egui::ThemePreference::System);
 
     for system in [egui::Theme::Light, egui::Theme::Dark] {
-        let _frame = h.ctx.run(
+        let mut frame = h.ctx.run_ui(
             egui::RawInput {
                 system_theme: Some(system),
                 ..Default::default()
             },
-            |ctx| h.app.ui(ctx),
+            |ui| h.app.ui(ui),
         );
+        frame.textures_delta.clear();
         assert_eq!(h.app.config.theme, Some(Appearance::Light));
         assert_eq!(h.ctx.theme(), egui::Theme::Light);
     }
@@ -124,13 +125,14 @@ fn edited_controls_and_theme_survive_save_and_reopen() -> Result<()> {
     let saved = Config::load(h.app.path.as_ref().context("path")?)?;
     assert_eq!(saved.theme, Some(Appearance::Light));
     let restarted = egui::Context::default();
-    let _frame = restarted.run(
+    let mut frame = restarted.run_pass(
         egui::RawInput {
             system_theme: Some(egui::Theme::Dark),
             ..Default::default()
         },
         |_| {},
     );
+    frame.textures_delta.clear();
     let mut saved = saved;
     theme::initialize(&restarted, &mut saved);
     assert_eq!(restarted.theme(), egui::Theme::Light);

@@ -115,7 +115,9 @@ fn completed_probe_wakes_a_waiting_ui_and_delivers_its_result() -> Result<()> {
 
     let ctx = egui::Context::default();
     for _ in 0..3 {
-        drop(ctx.run(egui::RawInput::default(), |_| {}));
+        ctx.run_pass(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
     }
     let (repaint, wake) = std::sync::mpsc::sync_channel(1);
     ctx.set_request_repaint_callback(move |info| {

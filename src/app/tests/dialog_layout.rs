@@ -35,7 +35,7 @@ fn dialogs_fit_short_forms_and_scroll_only_real_overflow() -> Result<()> {
             h.screen_size = size;
             h.app.config.theme = Some(appearance);
             theme::apply(&h.ctx, appearance);
-            h.ctx.style_mut(|style| style.animation_time = 0.0);
+            h.ctx.global_style_mut(|style| style.animation_time = 0.0);
             h.frame(Vec::new());
             h.click("Add target")?;
             for protocol in ["ICMP", "TCP", "HTTP"] {
@@ -89,6 +89,8 @@ fn dialogs_fit_short_forms_and_scroll_only_real_overflow() -> Result<()> {
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Point,
                         delta: egui::vec2(0.0, -2000.0),
+                        phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Trackpad,
                         modifiers: egui::Modifiers::NONE,
                     },
                 ]);

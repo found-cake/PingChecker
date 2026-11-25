@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use eframe::egui::{self, Align2, FontId, Sense, Stroke, WidgetInfo, WidgetType, emath::Rot2};
+use eframe::egui::{self, Align2, FontId, Role, Sense, Stroke, WidgetInfo, emath::Rot2};
 
 use crate::checker::monitor::Refresh;
 
@@ -67,7 +67,7 @@ pub fn draw(ui: &mut egui::Ui, refresh: Option<Refresh>) {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(44.0, 44.0), Sense::hover());
     response.widget_info(|| {
         let mut info = WidgetInfo::labeled(
-            WidgetType::ProgressIndicator,
+            Role::ProgressIndicator,
             ui.is_enabled(),
             &presentation.label,
         );
@@ -128,8 +128,8 @@ mod tests {
         ] {
             let ctx = egui::Context::default();
             ctx.enable_accesskit();
-            let output = ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     draw(
                         ui,
                         Some(Refresh::Waiting {
@@ -139,6 +139,7 @@ mod tests {
                     );
                 });
             });
+            output.textures_delta.clear();
             let values: Vec<_> = output
                 .platform_output
                 .accesskit_update
@@ -203,10 +204,10 @@ mod tests {
                 .minimized = Some(minimized);
             // Let egui's startup repaints settle before measuring the widget's request.
             for _ in 0..3 {
-                drop(ctx.run(input.clone(), |_| {}));
+                ctx.run_ui(input.clone(), |_| {}).textures_delta.clear();
             }
-            let output = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let mut output = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     draw(
                         ui,
                         Some(Refresh::Waiting {
@@ -216,6 +217,7 @@ mod tests {
                     );
                 });
             });
+            output.textures_delta.clear();
             let repaint_delay = output
                 .viewport_output
                 .get(&egui::ViewportId::ROOT)

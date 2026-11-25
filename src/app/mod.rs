@@ -77,34 +77,35 @@ impl App {
     }
 
     /// UI entry point shared by the native frame and real-widget tests.
-    pub fn ui(&mut self, ctx: &egui::Context) {
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
         // Native OS appearance arrives with the first input frame, after new().
         if self.config.theme.is_none() {
-            theme::initialize(ctx, &mut self.config);
+            theme::initialize(&ctx, &mut self.config);
         }
-        if let Some(action) = ui::draw(self, ctx) {
-            self.handle_action(action, ctx);
+        if let Some(action) = ui::draw(self, ui) {
+            self.handle_action(action, &ctx);
             ctx.request_repaint();
         }
         // Own the form locally while rendering; views cannot mutate App.
         if let Some(mut dialog) = self.dialog.take() {
-            let action = dialogs::draw(&mut dialog, self, ctx);
+            let action = dialogs::draw(&mut dialog, self, &ctx);
             self.dialog = Some(dialog);
             if let Some(action) = action {
                 match action {
                     dialogs::Action::Save(candidate) => {
                         if self.save(candidate) {
-                            self.close_dialog(ctx);
+                            self.close_dialog(&ctx);
                         }
                     }
-                    dialogs::Action::Close => self.close_dialog(ctx),
-                    dialogs::Action::PreviewTheme(appearance) => theme::apply(ctx, appearance),
+                    dialogs::Action::Close => self.close_dialog(&ctx),
+                    dialogs::Action::PreviewTheme(appearance) => theme::apply(&ctx, appearance),
                     dialogs::Action::TestBeep(draft) => self.test_beep(&draft),
                     dialogs::Action::Reload => {
                         if self.reload() {
                             self.dialog = Some(Dialog::Settings(self.config.clone()));
                             if let Some(appearance) = self.config.theme {
-                                theme::apply(ctx, appearance);
+                                theme::apply(&ctx, appearance);
                             }
                         }
                     }
@@ -156,7 +157,7 @@ impl eframe::App for App {
         input.max_texture_side = Some(input.max_texture_side.unwrap_or(2048).min(2048));
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(monitor) = &mut self.monitor {
             if let Err(error) = monitor.tick(&self.config, ctx) {
                 self.message = Some(format!("Monitoring error: {error:#}"));
@@ -169,7 +170,10 @@ impl eframe::App for App {
                 self.message = Some(format!("Alert beep failed: {error:#}"));
             }
         }
-        self.ui(ctx);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        App::ui(self, ui);
     }
 }
 

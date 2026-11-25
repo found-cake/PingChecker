@@ -17,11 +17,11 @@ pub enum Action {
     RemoveTarget(usize),
 }
 
-pub fn draw(app: &App, ctx: &egui::Context) -> Option<Action> {
+pub fn draw(app: &App, ui: &mut egui::Ui) -> Option<Action> {
     let mut action = None;
-    egui::TopBottomPanel::top("header")
-        .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(24))
-        .show(ctx, |ui| {
+    egui::Panel::top("header")
+        .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(24))
+        .show(ui, |ui| {
             ui.heading(crate::APP_NAME);
             let (mut up, mut down, mut pending) = (0, 0, 0);
             if let Some(monitor) = &app.monitor {
@@ -60,11 +60,9 @@ pub fn draw(app: &App, ctx: &egui::Context) -> Option<Action> {
                 }
             });
         });
-    egui::TopBottomPanel::bottom("refresh")
-        .frame(
-            egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::symmetric(24, 8)),
-        )
-        .show(ctx, |ui| {
+    egui::Panel::bottom("refresh")
+        .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(24, 8)))
+        .show(ui, |ui| {
             ui.set_height(44.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 countdown::draw(
@@ -80,9 +78,9 @@ pub fn draw(app: &App, ctx: &egui::Context) -> Option<Action> {
         });
     let opening_dialog = matches!(action, Some(Action::AddTarget | Action::Settings));
     if app.dialog.is_none() && !opening_dialog && app.message.is_some() {
-        egui::TopBottomPanel::bottom("notification")
-            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(16))
-            .show(ctx, |ui| {
+        egui::Panel::bottom("notification")
+            .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(16))
+            .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     if let Some(message) = &app.message {
                         ui.label(message);
@@ -94,8 +92,8 @@ pub fn draw(app: &App, ctx: &egui::Context) -> Option<Action> {
             });
     }
     egui::CentralPanel::default()
-        .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(24))
-        .show(ctx, |ui| {
+        .frame(egui::Frame::central_panel(ui.style()).inner_margin(24))
+        .show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 if app.config.targets.is_empty() {
                     ui.strong("No monitoring targets.");
