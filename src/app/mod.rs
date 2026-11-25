@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use eframe::egui;
 
@@ -151,6 +151,11 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+        // This app only uses the shared font atlas. Avoid allocating a GPU-sized atlas for it.
+        input.max_texture_side = Some(input.max_texture_side.unwrap_or(2048).min(2048));
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(monitor) = &mut self.monitor {
             if let Err(error) = monitor.tick(&self.config, ctx) {
@@ -165,7 +170,6 @@ impl eframe::App for App {
             }
         }
         self.ui(ctx);
-        ctx.request_repaint_after(Duration::from_millis(100));
     }
 }
 

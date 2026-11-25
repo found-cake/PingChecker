@@ -1,12 +1,16 @@
-use eframe::egui::{self, Align2, FontId, Sense, Stroke, WidgetInfo, WidgetType};
+use std::time::Duration;
+
+use eframe::egui::{self, Align2, FontId, Sense, Stroke, WidgetInfo, WidgetType, emath::Rot2};
 
 use crate::checker::monitor::Refresh;
+
+const ARC_REPAINT_INTERVAL: Duration = Duration::from_millis(33);
 
 struct Presentation {
     progress: Option<f32>,
     label: String,
     center_text: String,
-    checking: usize,
+    show_caption: bool,
 }
 
 impl Presentation {
@@ -15,7 +19,7 @@ impl Presentation {
             progress: None,
             label: label.into(),
             center_text: center_text.into(),
-            checking: 0,
+            show_caption: true,
         }
     }
 }
@@ -24,31 +28,39 @@ pub fn draw(ui: &mut egui::Ui, refresh: Option<Refresh>) {
     let presentation = match refresh {
         None => Presentation::status("--", "Monitoring unavailable"),
         Some(Refresh::Inactive) => Presentation::status("--", "No targets"),
-        Some(Refresh::Due) => Presentation::status("0s", "Refresh due"),
-        Some(Refresh::Checking { count }) => Presentation::status(
-            "...",
-            format!(
-                "Checking {count} {}...",
-                if count == 1 { "target" } else { "targets" }
-            ),
-        ),
+        Some(Refresh::Due) => {
+            ui.ctx().request_repaint();
+            Presentation {
+                show_caption: false,
+                ..Presentation::status("0s", "Refresh due")
+            }
+        }
         Some(Refresh::Waiting {
             remaining,
             progress,
-            checking,
         }) => {
+            let subsecond = Duration::from_nanos(u64::from(remaining.subsec_nanos()));
+            let until_next_second = if subsecond.is_zero() {
+                Duration::from_secs(1)
+            } else {
+                subsecond
+            };
+            // Keep background wakeups unchanged while animating the active window.
+            let animate =
+                ui.input(|input| input.focused && input.viewport().minimized != Some(true));
+            ui.ctx().request_repaint_after(if animate {
+                until_next_second.min(ARC_REPAINT_INTERVAL)
+            } else {
+                until_next_second
+            });
             let seconds = remaining
                 .as_secs()
                 .saturating_add(u64::from(remaining.subsec_nanos() != 0));
-            let mut label = format!("Next refresh in {seconds} s");
-            if checking != 0 {
-                label.push_str(&format!(" · {checking} checking"));
-            }
             Presentation {
                 progress: Some(progress),
-                label,
+                label: format!("Next refresh in {seconds} s"),
                 center_text: format!("{seconds}s"),
-                checking,
+                show_caption: false,
             }
         }
     };
@@ -72,11 +84,15 @@ pub fn draw(ui: &mut egui::Ui, refresh: Option<Refresh>) {
     if let Some(progress) = presentation.progress
         && progress > 0.0
     {
-        let points = (0..=64_u16)
-            .map(|step| {
-                let angle = -std::f32::consts::FRAC_PI_2
-                    + std::f32::consts::TAU * progress * f32::from(step) / 64.0;
-                center + egui::Vec2::angled(angle) * radius
+        const SEGMENTS: u16 = 64;
+        let step = Rot2::from_angle(std::f32::consts::TAU * progress / f32::from(SEGMENTS));
+        let mut offset = egui::vec2(0.0, -radius);
+        // Reuse the same angular step instead of evaluating sin/cos at each point.
+        let points = (0..=SEGMENTS)
+            .map(|_| {
+                let point = center + offset;
+                offset = step * offset;
+                point
             })
             .collect();
         ui.painter().add(egui::Shape::line(
@@ -92,10 +108,8 @@ pub fn draw(ui: &mut egui::Ui, refresh: Option<Refresh>) {
         ui.visuals().text_color(),
     );
     response.on_hover_text(&presentation.label);
-    if presentation.progress.is_none() {
+    if presentation.show_caption {
         ui.label(presentation.label);
-    } else if presentation.checking != 0 {
-        ui.label(format!("{} checking", presentation.checking));
     }
 }
 
@@ -103,14 +117,14 @@ pub fn draw(ui: &mut egui::Ui, refresh: Option<Refresh>) {
 mod tests {
     use super::*;
     use anyhow::{Context, Result};
-    use std::time::Duration;
-
     #[test]
     fn scheduled_progress_is_delivered_to_the_accessibility_tree() -> Result<()> {
-        for (progress, milliseconds, percent, dx, dy, seconds) in [
-            (0.25, 3750, 25.0, 19.0, 19.0, 4),
-            (0.5, 2500, 50.0, 0.0, 38.0, 3),
-            (0.75, 1250, 75.0, -19.0, 19.0, 2),
+        for (progress, milliseconds, percent, seconds) in [
+            (0.01, 4950, 1.0, 5),
+            (0.25, 3750, 25.0, 4),
+            (0.5, 2500, 50.0, 3),
+            (0.75, 1250, 75.0, 2),
+            (0.99, 50, 99.0, 1),
         ] {
             let ctx = egui::Context::default();
             ctx.enable_accesskit();
@@ -121,7 +135,6 @@ mod tests {
                         Some(Refresh::Waiting {
                             remaining: Duration::from_millis(milliseconds),
                             progress,
-                            checking: 1,
                         }),
                     );
                 });
@@ -134,7 +147,10 @@ mod tests {
                 .filter(|(_, node)| node.role() == egui::accesskit::Role::ProgressIndicator)
                 .filter_map(|(_, node)| node.numeric_value())
                 .collect();
-            assert_eq!(values, vec![percent]);
+            let [value] = values.as_slice() else {
+                anyhow::bail!("expected one accessible progress value, got {values:?}");
+            };
+            assert!((value - percent).abs() < 0.001);
             let center = output
                 .shapes
                 .iter()
@@ -143,19 +159,14 @@ mod tests {
                     _ => None,
                 })
                 .context("countdown circle")?;
-            let text = output
-                .shapes
-                .iter()
-                .find_map(|shape| match &shape.shape {
-                    egui::Shape::Text(text)
-                        if (text.pos + text.galley.size() * 0.5).distance(center) < 0.01 =>
-                    {
-                        Some(text.galley.job.text.as_str())
-                    }
-                    _ => None,
-                })
-                .context("centered countdown value")?;
-            assert_eq!(text, format!("{seconds}s"));
+            let mut text = output.shapes.iter().filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text),
+                _ => None,
+            });
+            let label = text.next().context("countdown value")?;
+            assert!((label.pos + label.galley.size() * 0.5).distance(center) < 0.01);
+            assert_eq!(label.galley.job.text, format!("{seconds}s"));
+            assert!(text.next().is_none(), "no separate checking caption");
             let arc = output
                 .shapes
                 .iter()
@@ -164,10 +175,58 @@ mod tests {
                     _ => None,
                 })
                 .context("progress arc")?;
-            let first = arc.points.first().context("arc start")?;
-            let last = arc.points.last().context("arc end")?;
-            assert!((last.x - first.x - dx).abs() < 0.001);
-            assert!((last.y - first.y - dy).abs() < 0.001);
+            for (index, point) in (0..=64_u16).zip(&arc.points) {
+                let angle = std::f32::consts::TAU * progress * f32::from(index) / 64.0;
+                let expected = center + 19.0 * egui::vec2(angle.sin(), -angle.cos());
+                assert!(point.distance(expected) < 0.001, "arc point {index}");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn arc_only_requests_intermediate_frames_in_the_active_window() -> Result<()> {
+        for (focused, minimized, fast_repaint) in [
+            (true, false, true),
+            (false, false, false),
+            (true, true, false),
+        ] {
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput {
+                focused,
+                ..Default::default()
+            };
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .context("root viewport")?
+                .minimized = Some(minimized);
+            // Let egui's startup repaints settle before measuring the widget's request.
+            for _ in 0..3 {
+                drop(ctx.run(input.clone(), |_| {}));
+            }
+            let output = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    draw(
+                        ui,
+                        Some(Refresh::Waiting {
+                            remaining: Duration::from_millis(2500),
+                            progress: 0.5,
+                        }),
+                    );
+                });
+            });
+            let repaint_delay = output
+                .viewport_output
+                .get(&egui::ViewportId::ROOT)
+                .context("root viewport output")?
+                .repaint_delay;
+            if fast_repaint {
+                assert!(repaint_delay < Duration::from_millis(50));
+            } else {
+                assert!(repaint_delay > Duration::from_millis(400));
+                assert!(repaint_delay <= Duration::from_millis(500));
+            }
         }
         Ok(())
     }

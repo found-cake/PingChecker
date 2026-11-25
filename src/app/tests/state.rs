@@ -5,7 +5,7 @@ use crate::{
     config::{Endpoint, Target},
 };
 use anyhow::{Context, Result};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[test]
 fn check_now_cancels_pending_work_without_clearing_outage_state() -> Result<()> {
@@ -14,9 +14,9 @@ fn check_now_cancels_pending_work_without_clearing_outage_state() -> Result<()> 
     let mut config = h.app.config.clone();
     config.targets.push(Target {
         name: "local".into(),
-        endpoint: Endpoint::Tcp {
-            host: "127.0.0.1".into(),
-            port: listener.local_addr()?.port(),
+        // Keep the probe in flight: the listener never sends HTTP headers.
+        endpoint: Endpoint::Http {
+            url: format!("http://{}/", listener.local_addr()?),
         },
     });
     assert!(h.app.save(config));
@@ -28,10 +28,10 @@ fn check_now_cancels_pending_work_without_clearing_outage_state() -> Result<()> 
     );
     monitor.tick(&h.app.config, &h.ctx)?;
     let interval = Duration::from_secs(h.app.config.interval_seconds);
-    assert_eq!(
+    assert!(matches!(
         monitor.refresh(Instant::now(), interval),
-        crate::checker::monitor::Refresh::Checking { count: 1 }
-    );
+        crate::checker::monitor::Refresh::Waiting { .. }
+    ));
     h.frame(Vec::new());
     h.frame(Vec::new());
 
@@ -65,11 +65,8 @@ fn removing_a_target_through_ui_updates_saved_and_live_targets() -> Result<()> {
 
     assert!(h.app.config.targets.is_empty());
     assert!(h.app.monitor.as_ref().context("monitor")?.states.is_empty());
-    assert!(
-        Config::load(h.app.path.as_ref().context("path")?)?
-            .targets
-            .is_empty()
-    );
+    let saved = Config::load(h.app.path.as_ref().context("path")?)?;
+    assert!(saved.targets.is_empty());
     Ok(())
 }
 

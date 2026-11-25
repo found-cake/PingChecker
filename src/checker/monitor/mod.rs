@@ -1,24 +1,21 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    task::{Context as TaskContext, Poll, Wake, Waker},
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result};
 use eframe::egui;
 use tokio::{runtime::Runtime, task::JoinSet};
 
 use super::{probe, state::TargetState};
-use crate::config::Config;
+use crate::config::{Config, Endpoint};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Refresh {
     Inactive,
     Due,
-    Checking {
-        count: usize,
-    },
-    Waiting {
-        remaining: Duration,
-        progress: f32,
-        checking: usize,
-    },
+    Waiting { remaining: Duration, progress: f32 },
 }
 
 struct Report {
@@ -28,47 +25,46 @@ struct Report {
     finished: Instant,
 }
 
+struct RepaintOnCompletion(egui::Context);
+
+impl Wake for RepaintOnCompletion {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.request_repaint_of(egui::ViewportId::ROOT);
+    }
+}
+
 pub struct Monitor {
     runtime: Runtime,
-    client: reqwest::Client,
+    client: Arc<probe::HttpClient>,
     jobs: JoinSet<Report>,
+    completion_waker: Option<Waker>,
     pub states: Vec<TargetState>,
-    due: Vec<Instant>,
+    next_refresh: Instant,
     busy: Vec<bool>,
 }
 
 impl Monitor {
     pub fn new(config: &Config) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
+            .worker_threads(1)
             .enable_all()
             .build()
             .context("Could not create the monitoring runtime")?;
-        let client = {
-            let _guard = runtime.enter();
-            reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::limited(5))
-                .timeout(Duration::from_secs(60))
-                .connect_timeout(Duration::from_secs(60))
-                .pool_max_idle_per_host(1)
-                .user_agent(concat!(
-                    env!("CARGO_PKG_NAME"),
-                    "/",
-                    env!("CARGO_PKG_VERSION")
-                ))
-                .build()
-                .context("Could not create the HTTP client")?
-        };
         Ok(Self {
             runtime,
-            client,
+            client: Arc::default(),
             jobs: JoinSet::new(),
+            completion_waker: None,
             states: config
                 .targets
                 .iter()
                 .map(|_| TargetState::default())
                 .collect(),
-            due: vec![Instant::now(); config.targets.len()],
+            next_refresh: Instant::now(),
             busy: vec![false; config.targets.len()],
         })
     }
@@ -76,6 +72,13 @@ impl Monitor {
     pub fn reset(&mut self, config: &Config, preserve_states: bool) {
         // Dropping the set cancels old jobs, including in-flight ping subprocesses.
         self.jobs = JoinSet::new();
+        if !config
+            .targets
+            .iter()
+            .any(|target| matches!(target.endpoint, Endpoint::Http { .. }))
+        {
+            self.client = Arc::default();
+        }
         if !preserve_states {
             self.states = config
                 .targets
@@ -83,7 +86,7 @@ impl Monitor {
                 .map(|_| TargetState::default())
                 .collect();
         }
-        self.due = vec![Instant::now(); config.targets.len()];
+        self.next_refresh = Instant::now();
         self.busy = vec![false; config.targets.len()];
     }
 
@@ -108,78 +111,82 @@ impl Monitor {
     }
 
     pub fn refresh(&self, now: Instant, interval: Duration) -> Refresh {
-        let checking = self.busy.iter().filter(|busy| **busy).count();
-        let deadline = self
-            .due
-            .iter()
-            .zip(&self.busy)
-            .filter_map(|(due, busy)| (!busy).then_some(*due))
-            .min();
-        match deadline {
-            None if self.due.is_empty() => Refresh::Inactive,
-            None => Refresh::Checking { count: checking },
-            Some(due) if due <= now => Refresh::Due,
-            Some(due) => {
-                let remaining = due.duration_since(now);
-                Refresh::Waiting {
-                    remaining,
-                    progress: interval.saturating_sub(remaining).as_secs_f32()
-                        / interval.as_secs_f32(),
-                    checking,
-                }
+        if self.busy.is_empty() {
+            return Refresh::Inactive;
+        }
+        let remaining = self.next_refresh.saturating_duration_since(now);
+        if remaining.is_zero() {
+            Refresh::Due
+        } else {
+            Refresh::Waiting {
+                remaining,
+                progress: interval.saturating_sub(remaining).as_secs_f32() / interval.as_secs_f32(),
             }
         }
     }
 
     pub fn tick(&mut self, config: &Config, ctx: &egui::Context) -> Result<()> {
-        while let Some(report) = self.jobs.try_join_next() {
-            match report {
-                Ok(report) => {
-                    if let Some(state) = self.states.get_mut(report.index) {
-                        state.record(report.result, report.elapsed, report.finished);
-                    }
-                    if let Some(busy) = self.busy.get_mut(report.index) {
-                        *busy = false;
-                    }
-                }
-                Err(error) => {
-                    self.reset(config, true);
-                    return Err(error).context("A monitoring task was interrupted");
-                }
-            }
-        }
         let now = Instant::now();
-        for (index, target) in config.targets.iter().enumerate() {
-            let (Some(due), Some(busy)) = (self.due.get_mut(index), self.busy.get_mut(index))
-            else {
-                continue;
-            };
-            if *busy || now < *due {
+        let round_due = !self.busy.is_empty() && now >= self.next_refresh;
+        if !round_due && self.jobs.is_empty() {
+            return Ok(());
+        }
+        // Register for completion, including panics, before relying on repaint notifications.
+        let waker = self
+            .completion_waker
+            .get_or_insert_with(|| Waker::from(Arc::new(RepaintOnCompletion(ctx.clone()))))
+            .clone();
+        self.collect_reports(config, &waker)?;
+        if !round_due {
+            return Ok(());
+        }
+
+        // Start the next countdown immediately, even if every target is still busy.
+        self.next_refresh = now + Duration::from_secs(config.interval_seconds);
+        let timeout = Duration::from_secs(config.timeout_seconds);
+        for (index, (target, busy)) in config.targets.iter().zip(&mut self.busy).enumerate() {
+            if *busy {
                 continue;
             }
             *busy = true;
-            *due = now + Duration::from_secs(config.interval_seconds);
-            let client = self.client.clone();
+            let client = Arc::clone(&self.client);
             let endpoint = target.endpoint.clone();
-            let timeout = Duration::from_secs(config.timeout_seconds);
-            let ctx = ctx.clone();
             self.jobs.spawn_on(
                 async move {
                     let start = Instant::now();
                     let result = probe::check(&client, &endpoint, timeout)
                         .await
                         .map_err(|error| format!("{error:#}"));
-                    let report = Report {
+                    Report {
                         index,
                         result,
                         elapsed: start.elapsed(),
                         finished: Instant::now(),
-                    };
-                    ctx.request_repaint();
-                    report
+                    }
                 },
                 self.runtime.handle(),
             );
+        }
+        self.collect_reports(config, &waker)
+    }
+
+    fn collect_reports(&mut self, config: &Config, waker: &Waker) -> Result<()> {
+        let mut cx = TaskContext::from_waker(waker);
+        while let Poll::Ready(Some(report)) = self.jobs.poll_join_next(&mut cx) {
+            match report {
+                Ok(report) => {
+                    self.states[report.index].record(
+                        report.result,
+                        report.elapsed,
+                        report.finished,
+                    );
+                    self.busy[report.index] = false;
+                }
+                Err(error) => {
+                    self.reset(config, true);
+                    return Err(error).context("A monitoring task was interrupted");
+                }
+            }
         }
         Ok(())
     }

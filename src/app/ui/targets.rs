@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, RichText};
 
@@ -7,7 +7,15 @@ use crate::{app::App, checker::state::Health};
 
 pub fn draw(app: &App, ui: &mut egui::Ui) -> Option<usize> {
     let mut remove = None;
+    let now = Instant::now();
     let alarmed: Vec<bool> = app.monitor.as_ref().map_or_else(Vec::new, |monitor| {
+        if monitor
+            .states
+            .iter()
+            .any(|state| state.down_since.is_some())
+        {
+            ui.ctx().request_repaint_after(Duration::from_secs(1));
+        }
         monitor.states.iter().map(|state| state.alarmed).collect()
     });
     egui::ScrollArea::horizontal()
@@ -89,11 +97,12 @@ pub fn draw(app: &App, ui: &mut egui::Ui) -> Option<usize> {
                             state
                                 .map_or_else(|| "-".into(), |s| s.consecutive_failures.to_string()),
                         );
-                        ui.label(
-                            state
-                                .and_then(|s| s.down_since)
-                                .map_or_else(|| "-".into(), |since| elapsed(since.elapsed())),
-                        );
+                        if let Some(since) = state.and_then(|s| s.down_since) {
+                            let downtime = now.saturating_duration_since(since);
+                            ui.label(elapsed(downtime));
+                        } else {
+                            ui.label("-");
+                        }
                         if ui
                             .add_enabled(app.writable, egui::Button::new("Remove"))
                             .clicked()

@@ -4,6 +4,7 @@ use crate::{
     config::{Endpoint, Target},
 };
 use anyhow::{Context, Result};
+use std::time::Duration;
 
 fn application(path: PathBuf) -> Result<App> {
     let config = Config {

@@ -1,12 +1,14 @@
 use std::{process::Stdio, time::Duration};
 
 use anyhow::{Context, Result, bail};
-use tokio::{net::TcpStream, process::Command, time};
+use tokio::{net::TcpStream, process::Command, sync::OnceCell, time};
 
 use crate::config::Endpoint;
 
-pub async fn check(
-    client: &reqwest::Client,
+pub(super) type HttpClient = OnceCell<reqwest::Client>;
+
+pub(super) async fn check(
+    client: &HttpClient,
     endpoint: &Endpoint,
     timeout: Duration,
 ) -> Result<String> {
@@ -61,6 +63,22 @@ pub async fn check(
                 Ok("TCP connected".to_owned())
             }
             Endpoint::Http { url } => {
+                let client = client
+                    .get_or_try_init(|| async {
+                        reqwest::Client::builder()
+                            .redirect(reqwest::redirect::Policy::limited(5))
+                            .timeout(Duration::from_secs(60))
+                            .connect_timeout(Duration::from_secs(60))
+                            .pool_max_idle_per_host(1)
+                            .user_agent(concat!(
+                                env!("CARGO_PKG_NAME"),
+                                "/",
+                                env!("CARGO_PKG_VERSION")
+                            ))
+                            .build()
+                    })
+                    .await
+                    .context("Could not create the HTTP client")?;
                 let response = client
                     .get(url)
                     .send()
@@ -93,7 +111,7 @@ mod tests {
         let endpoint = Endpoint::Http {
             url: format!("http://{}/", listener.local_addr()?),
         };
-        let client = reqwest::Client::builder().no_proxy().build()?;
+        let client = HttpClient::from(reqwest::Client::builder().no_proxy().build()?);
         let mut jobs = JoinSet::new();
         jobs.spawn(async move { check(&client, &endpoint, Duration::from_secs(60)).await });
         let (mut stream, _) = time::timeout(Duration::from_secs(5), listener.accept()).await??;
@@ -135,7 +153,7 @@ mod tests {
             host: "127.0.0.1".into(),
             port,
         };
-        let client = reqwest::Client::new();
+        let client = HttpClient::new();
         let (probe, server) = time::timeout(Duration::from_secs(5), async {
             tokio::join!(check(&client, &endpoint, Duration::from_secs(3)), server)
         })
@@ -171,10 +189,12 @@ mod tests {
                 stream.write_all(format!("HTTP/1.1 {status} Test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await?;
                 Result::<()>::Ok(())
             };
-            let client = reqwest::Client::builder()
-                .no_proxy()
-                .redirect(reqwest::redirect::Policy::limited(5))
-                .build()?;
+            let client = HttpClient::from(
+                reqwest::Client::builder()
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::limited(5))
+                    .build()?,
+            );
             let endpoint = Endpoint::Http { url };
             let (probe, server) = time::timeout(Duration::from_secs(5), async {
                 tokio::join!(check(&client, &endpoint, Duration::from_secs(3)), server)
