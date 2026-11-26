@@ -14,18 +14,23 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.platform.name }}${{ matrix.renderer.suffix }}
+    runs-on: ${{ matrix.platform.os }}
+    env:
+      PACKAGE_VARIANT: ${{ matrix.platform.name }}${{ matrix.renderer.suffix }}
     strategy:
       fail-fast: false
       matrix:
-        include:
+        platform:
           - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, name: linux-amd64 }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: linux-arm64 }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, name: windows-amd64 }
           - { os: windows-11-arm, target: aarch64-pc-windows-msvc, name: windows-arm64 }
           - { os: macos-latest, target: x86_64-apple-darwin, name: macos-amd64 }
           - { os: macos-latest, target: aarch64-apple-darwin, name: macos-arm64 }
+        renderer:
+          - { feature: glow, suffix: '' }
+          - { feature: wgpu, suffix: '-wgpu' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -53,23 +58,23 @@ jobs:
             export PATH="$HOME/.cargo/bin:$PATH"
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           fi
-          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup toolchain install stable --profile minimal --target ${{ matrix.platform.target }}
           rustup default stable
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: ${{ matrix.target }}
+          key: ${{ env.PACKAGE_VARIANT }}
 
       - name: Build
-        run: cargo build --locked --release --target ${{ matrix.target }}
+        run: cargo build --locked --release --target ${{ matrix.platform.target }} --no-default-features --features ${{ matrix.renderer.feature }}
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          dir="$BIN-$GITHUB_REF_NAME-${{ matrix.name }}"
+          dir="$BIN-$GITHUB_REF_NAME-$PACKAGE_VARIANT"
           mkdir "$dir"
-          cp "target/${{ matrix.target }}/release/$BIN" "$dir"/
+          cp "target/${{ matrix.platform.target }}/release/$BIN" "$dir"/
           for f in LICENSE* README.md; do if [ -f "$f" ]; then cp "$f" "$dir"/; fi; done
           tar -czf "$dir.tar.gz" "$dir"
           echo "ASSET=$dir.tar.gz" >> "$GITHUB_ENV"
@@ -78,16 +83,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $dir = "$env:BIN-$env:GITHUB_REF_NAME-${{ matrix.name }}"
+          $dir = "$env:BIN-$env:GITHUB_REF_NAME-$env:PACKAGE_VARIANT"
           New-Item -ItemType Directory $dir | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/$env:BIN.exe" $dir
+          Copy-Item "target/${{ matrix.platform.target }}/release/$env:BIN.exe" $dir
           Get-ChildItem LICENSE*, README.md -ErrorAction SilentlyContinue | Copy-Item -Destination $dir
           Compress-Archive -Path $dir -DestinationPath "$dir.zip"
           "ASSET=$dir.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ matrix.name }}
+          name: ${{ env.PACKAGE_VARIANT }}
           path: ${{ env.ASSET }}
 
   release:
