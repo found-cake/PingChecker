@@ -125,7 +125,6 @@ fn switching_themes_preserves_the_actual_screen_layout() {
                                 message: notification.then(|| "Test notification".into()),
                                 writable: true,
                                 dialog,
-                                beeper: Beeper::default(),
                             };
                             let ctx = egui::Context::default();
                             ctx.set_theme(initial_theme);

@@ -122,7 +122,6 @@ fn adding_and_deleting_other_targets_preserves_an_alarmed_outage() -> Result<()>
         message: None,
         writable: true,
         dialog: None,
-        beeper: Beeper::default(),
     };
 
     // Add C, remove the earlier healthy target (shifting A), then remove C.

@@ -30,7 +30,6 @@ impl Harness {
             message: None,
             writable: true,
             dialog: None,
-            beeper: Beeper::default(),
         };
         let mut harness = Self {
             app,

@@ -2,13 +2,10 @@ use std::path::PathBuf;
 
 use eframe::egui;
 
-use self::{
-    audio::Beeper,
-    ui::{
-        dialogs::{self, Dialog},
-        entry::Entry,
-        theme,
-    },
+use self::ui::{
+    dialogs::{self, Dialog},
+    entry::Entry,
+    theme,
 };
 use crate::{checker::monitor::Monitor, config::Config};
 
@@ -23,7 +20,6 @@ pub struct App {
     pub message: Option<String>,
     pub writable: bool,
     pub dialog: Option<Dialog>,
-    beeper: Beeper,
 }
 
 impl App {
@@ -72,7 +68,6 @@ impl App {
             message,
             writable,
             dialog: None,
-            beeper: Beeper::default(),
         }
     }
 
@@ -144,7 +139,7 @@ impl App {
     }
 
     fn test_beep(&mut self, draft: &Config) {
-        self.message = Some(match self.beeper.play(draft) {
+        self.message = Some(match audio::play(draft) {
             Ok(()) => "Beep played. Check the system volume and output device.".into(),
             Err(error) => format!("Could not play the beep: {error:#}"),
         });
@@ -166,7 +161,7 @@ impl eframe::App for App {
             for state in &mut monitor.states {
                 alarm |= state.alarm_due(self.config.failure_threshold, self.config.beep_enabled);
             }
-            if alarm && let Err(error) = self.beeper.play(&self.config) {
+            if alarm && let Err(error) = audio::play(&self.config) {
                 self.message = Some(format!("Alert beep failed: {error:#}"));
             }
         }

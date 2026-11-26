@@ -1,32 +1,57 @@
-use std::time::Duration;
+use std::{sync::mpsc, thread, time::Duration};
 
-use anyhow::{Context, Result};
-use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source, source::SineWave};
+use anyhow::{Context, Result, anyhow};
+use rodio::{
+    DeviceSinkBuilder, MixerDeviceSink, Player, Source, cpal::BufferSize, source::SineWave,
+};
 
 use crate::config::Config;
 
-/// The stream and sink stay alive for the lifetime of the application.
-#[derive(Default)]
-pub struct Beeper {
-    output: Option<(MixerDeviceSink, Player)>,
+/// The mixer draining is not the device finishing: samples can still sit in the
+/// OS buffer, so the stream stays open this much longer to avoid cutting them off.
+const CLOSE_DELAY: Duration = Duration::from_millis(100);
+
+/// Plays one beep on the current default output device and returns once the
+/// device is open. The stream lives on a short thread that ends with the beep,
+/// so nothing stays resident and output changes (e.g. headphones) apply each time.
+pub fn play(config: &Config) -> Result<()> {
+    let source = tone(config);
+    let (opened, opened_rx) = mpsc::sync_channel(1);
+    thread::Builder::new()
+        .name("beep".into())
+        .spawn(move || {
+            let stream = open_output();
+            let ready = stream
+                .as_ref()
+                .map(|_| ())
+                .map_err(|error| anyhow!("{error:#}"));
+            if opened.send(ready).is_ok()
+                && let Ok(stream) = stream
+            {
+                let player = Player::connect_new(stream.mixer());
+                player.append(source);
+                player.sleep_until_end();
+                thread::sleep(CLOSE_DELAY);
+            }
+        })
+        .context("Failed to start the audio thread")?;
+    opened_rx
+        .recv()
+        .context("The audio thread stopped before opening the output device")?
 }
 
-impl Beeper {
-    pub fn play(&mut self, config: &Config) -> Result<()> {
-        if self.output.is_none() {
-            let mut stream = DeviceSinkBuilder::open_default_sink()
-                .context("Failed to open the audio output device")?;
-            stream.log_on_drop(false);
-            let sink = Player::connect_new(stream.mixer());
-            self.output = Some((stream, sink));
-        }
-        if let Some((stream, sink)) = &mut self.output {
-            // Dropping the old sink stops it without waiting for its queue to drain.
-            *sink = Player::connect_new(stream.mixer());
-            sink.append(tone(config));
-        }
-        Ok(())
-    }
+fn open_output() -> Result<MixerDeviceSink> {
+    // rodio's fixed 50 ms buffer (2048 frames at 48 kHz) exceeds the range of
+    // some Bluetooth outputs, so let the OS choose a size the device supports.
+    let mut stream = DeviceSinkBuilder::from_default_device()
+        .and_then(|builder| {
+            builder
+                .with_buffer_size(BufferSize::Default)
+                .open_sink_or_fallback()
+        })
+        .context("Failed to open the audio output device")?;
+    stream.log_on_drop(false);
+    Ok(stream)
 }
 
 fn tone(config: &Config) -> impl Source<Item = f32> + Send + 'static {

@@ -24,7 +24,6 @@ fn application(path: PathBuf) -> Result<App> {
         message: None,
         writable: true,
         dialog: None,
-        beeper: Beeper::default(),
     })
 }
 
